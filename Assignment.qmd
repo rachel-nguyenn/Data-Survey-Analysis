@@ -1,0 +1,497 @@
+---
+title: "DATA2X02 Survey Data Analysis"
+author: "520495538"
+date: "`r format(Sys.time(), '%d %B, %Y %H:%M')`"
+bibliography: [refs/bibliography.bibtex, refs/Packages.bib]
+format: 
+  html: 
+    embed-resources: true # Creates a single HTML file as output
+    code-fold: true # Code folding; allows you to show/hide code chunks
+    code-tools: true # Includes a menu to download the code file
+table-of-contents: true # (Optional) Creates a table of contents!
+number-sections: true # (Optional) Puts numbers next to heading/subheadings
+---
+
+```{r, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(patchwork)
+library(knitr)
+knitr::write_bib(c(.packages(),
+                   "knitr"), "refs/packages.bib")
+```
+
+## Data Wrangling
+
+This analysis based on a survey [@data2002survey] that has been introduced to the DATA2X02 cohort. Data wrangling is performed in R [@R-base] and tidyverse [@R-tidyverse] packages, including readr, tidyr, dplyr. Graphs in this report are visualised using ggplot2 [@R-ggplot2] and manipulation of graphs are conducted with patchwork [@R-patchwork]. Moreover, to handle some string conversion, stringr [@R-stringr] is used to solve the problem. Some variables in this report are cleaned based on the guide to clean data for this survey by Dr Garth Tarr [@tarr2023]. This report is written and compiled using Quarto system.
+
+### Importing Data
+
+Name of all variables are shortened to ease the process. To keep as much data as possible, missing values are not removed.
+
+```{r, warning=FALSE, message=FALSE}
+x = readr::read_csv("DATA2x02 survey (2023) (Responses) - Form responses 1.csv")
+old_names = colnames(x)
+new_names = c("timestamp","n_units","task_approach","age",
+              "life","fass_unit","fass_major","novel",
+              "library","private_health","sugar_days","rent",
+              "post_code","haircut_days","laptop_brand",
+              "urinal_position","stall_position","n_weetbix","food_budget",
+              "pineapple","living_arrangements","height","uni_travel_method",
+              "feel_anxious","study_hrs","work","social_media",
+              "gender","sleep_time","diet","random_number",
+              "steak_preference","dominant_hand","normal_advanced","exercise_hrs",
+              "employment_hrs","on_time","used_r_before","team_role",
+              "social_media_hrs","uni_year","sport","wam","shoe_size")
+# overwrite the old names with the new names:
+colnames(x) = new_names
+# combine old and new into a data frame:
+name_combo = bind_cols(New = new_names, Old = old_names)
+```
+
+### Cleaning data
+
+**Categorical variables:** The cleaning of categorical variables include formatting all the data to make it consistent and ensure aesthestic. Categories which have a small number of responses are grouped and treated as Other. Furthermore, data that are not related to the question (not serious attempt) will be converted to NA.
+
+**Numerical variables:** For columns that have extreme values, data will be filtered and set to NA in order not to affect the quality of data.
+
+#### Number of units (n_units)
+
+```{r, warning=FALSE, message=FALSE}
+x = x |> 
+  mutate(n_units = if_else(n_units>8, NA, n_units))
+```
+
+#### Age (age)
+
+```{r}
+x = x |> 
+  mutate(age = if_else(age>80 | age<15, NA, age))
+```
+
+#### Library (library)
+
+```{r}
+x = x |> 
+  mutate(library = if_else(library %in% c("Fisher", "SciTech"), library, NA))
+```
+
+#### Number of days consume sugar per week (sugar_days)
+
+```{r, warning=FALSE, message=FALSE}
+x <- x |> 
+  dplyr::mutate(
+    sugar_days_clean = readr::parse_number(sugar_days),
+    sugar_days_clean = case_when(
+      sugar_days_clean > 7 ~ NA_real_,
+      TRUE ~ sugar_days_clean
+    )
+  )
+```
+
+#### Paying rent? (rent)
+
+```{r}
+x = x |> 
+  mutate(rent = if_else(rent %in% c("Yes", "No"), rent, NA))
+```
+
+#### Days between haircut (haircut_days)
+
+```{r}
+day_convert <- function(text) {
+  
+  if (grepl("^\\d+$", text)) {
+    return(as.numeric(text))
+  }
+  
+  num <- as.numeric(str_extract(text, "\\d+"))
+  unit <- str_extract(text, "[a-z]+")
+  
+  if (is.na(num) || is.na(unit)) {
+    return(NA)
+  }
+  if (unit %in% c("month", "months")) {
+    return(num * 30)  # Assuming 30 days in a month
+  } else if (unit %in% c("year", "years")) {
+    return(num * 365)  # Assuming 365 days in a year
+  } else if (unit %in% c("week", "weeks")) {
+    return(num * 7)  
+  } else if (unit %in% c("day", "days")) {
+    return(num) 
+  } else {
+    return(NA)
+  }
+}
+
+x = x |> 
+  mutate(haircut_days_clean = sapply(haircut_days, day_convert))
+```
+
+#### Laptop brand (laptop_brand)
+
+```{r}
+x= x |> mutate(
+  laptop_clean = tolower(laptop_brand),
+  laptop_clean = str_replace_all(laptop_clean, '[[:punct:]]',' '),
+  laptop_clean = stringr::word(laptop_clean),
+  laptop_clean = case_when(
+    stringr::str_starts(laptop_clean,"mac") ~ "apple",
+    stringr::str_starts(laptop_clean,"windows") ~ "microsoft",
+    is.na(laptop_clean) ~ "none",
+    TRUE ~ laptop_clean
+  ),
+  laptop_clean = tools::toTitleCase(laptop_clean),
+  laptop_clean = forcats::fct_lump_min(laptop_clean, min = 10)
+)
+```
+
+#### Pineapple on pizza
+
+```{r}
+x = x |>
+  mutate(pineapple = if_else(pineapple %in% c("Yes", "No"), pineapple, NA))
+```
+
+#### Living arrangements (living_arrangements)
+
+```{r}
+x = x |> 
+  mutate(
+    living_arrangements = forcats::fct_lump_min(living_arrangements, min = 5)
+  )
+```
+
+#### Height (height)
+
+```{r, warning=FALSE, message=FALSE}
+x = x |> 
+  dplyr::mutate(
+    height_clean = readr::parse_number(height),
+    height_clean = case_when(
+      # convert meters to cm
+      height_clean <= 2.5 ~ height_clean * 100,
+      # convert the feet and inches to missing
+      height_clean <= 9 ~ NA_real_,
+      # convert inches to cm
+      height_clean < 90 ~ height_clean * 2.54,
+      TRUE ~ height_clean
+    )
+  )
+x = x |> 
+  mutate(height_clean = if_else(height_clean>100, height_clean, NA ))
+```
+
+#### Studying hours per week (study_hrs)
+
+```{r}
+x = x |> 
+  mutate(study_hrs = if_else(study_hrs > 168, NA, study_hrs))
+```
+
+#### Working status (work)
+
+```{r}
+x = x |> 
+  mutate(
+    work = forcats::fct_lump_min(work, min = 2)
+  )
+```
+
+#### Social media (social_media)
+
+```{r}
+x= x |> mutate(
+  social_media_clean = tolower(social_media),
+  social_media_clean = str_replace_all(social_media_clean, '[[:punct:]]',' '),
+  social_media_clean = stringr::word(social_media_clean),
+  social_media_clean = case_when(
+    stringr::str_starts(social_media_clean,"in") ~ "instagram",
+    stringr::str_starts(social_media_clean,"ig") ~ "instagram",
+    stringr::str_starts(social_media_clean,"tik") ~ "tiktok",
+    stringr::str_starts(social_media_clean,"we") ~ "wechat",
+    stringr::str_starts(social_media_clean,"x") ~ "twitter",
+    stringr::str_starts(social_media_clean,"mess") ~ "facebook",
+    stringr::str_starts(social_media_clean,"bil") ~ "bilibili",
+    is.na(social_media_clean) ~ "none",
+    TRUE ~ social_media_clean
+  ),
+  social_media_clean = tools::toTitleCase(social_media_clean),
+  social_media_clean = forcats::fct_lump_min(social_media_clean, min = 10)
+)
+```
+
+#### Gender (gender)
+
+```{r}
+x = x |> mutate(
+  gender_clean = gendercoder::recode_gender(gender)
+)
+```
+
+#### Sleeping time (sleep_time)
+
+```{r, warning=FALSE, message=FALSE}
+x <- x |> 
+  dplyr::mutate(
+    sleep_time_clean = readr::parse_number(sleep_time),
+    sleep_time_clean = case_when(
+      sleep_time_clean > 20 ~ NA_real_,
+      TRUE ~ sleep_time_clean
+    )
+  )
+```
+
+#### Diet style (diet)
+
+```{r}
+x = x |> 
+  mutate(diet = if_else(!(diet %in% c("Omnivorous")), "Other", diet))
+```
+
+#### Steak preference (steak_preference)
+
+```{r}
+x = x |> 
+  mutate(steak_preference = ifelse(steak_preference != "I don't eat beef", "Eat beef", steak_preference))
+```
+
+#### Exercises hours per week (exercise_hrs)
+
+```{r}
+x = x |> 
+  mutate(exercise_hrs = if_else(exercise_hrs > 100, NA, exercise_hrs))
+```
+
+#### WAM (wam)
+
+```{r}
+x = x |> 
+  mutate(wam = if_else(wam < 25 | wam > 98, NA, wam))
+```
+
+## Required Question
+
+### General Discussion
+
+#### Is this a random sample of DATA2X02 students?
+
+This is not a random sample of DATA2X02 students because the data has been acquired from a voluntary survey. The absence of mandatory participation in the survey contradicts with the definition of random sampling. Random sample involves selecting randomly an individual from a population so that their chance of being selected are equal. Therefore, as the participation in this survey is not compulsory, and people taking part in are not randomly selected, this is not considered as a random sample and may not reflect the whole DATA2X02 cohort.
+
+There are also some limitations of this survey which affect the tests below. The survey's result will only display the characteristics and perspectives of students who complete the survey. Hence, being a challenge in reflecting the whole cohort's traits. Moreover, some tests have the assumption that variables are independent and identically distributed, which are not met since this is not a random sample as discussed above.
+
+#### What are the potential biases? Which variables are most likely to be subjected to this bias?
+
+1.  Non-response bias: The cohort consists of 675 students, however, there were only 312 responses to the survey. This leads to skewness of the result since those who did not participate may be systematically different from those who did.
+
+2.  Response bias: Respondents in this survey provide untruthful or extreme values across different variables. Variables that are subjected to this bias include wam, study_hrs or exercise_hrs.
+
+3.  Self-selection bias: This survey is done voluntarily by students. Therefore, only those who are interested in the survey will take part in. The outcome of this survey might not precisely demonstrate the whole DATA2X02 population since people who do the survey can have opposite opinions compared to those who do not.
+
+4.  Recall bias: There are some variables from the survey that rely mostly on respondents' memory i.e. sugar_days, exercise_hrs, haircut_days.
+
+#### Which questions needed improvement to generate useful data (e.g. in terms of the way the question was phrased or response validation)?
+
+1.  Do you tend to lean towards saying "yes" or towards saying "no" to things throughout life? This question needs to be clarified. It would be more useful if there is a context given so that respondents are not confused about the word "things".
+
+2.  Would you prefer to study at Fisher Library or SciTech Library? The option for this question should not include Other since the question is asking to choose between two libraries. The addition of option Other makes the data cleaning become more complicated. Another solution is to change this question as "What is your favourite library at the University of Sydney? (Please choose one only)", so that respondents can put their favourite library in case Fisher and SciTech are not their choices.
+
+### Hypothesis Testing
+
+#### Is there any evidence that student's gender and their choice of diet style are related? (Monte Carlo Simulation)
+
+The histogram of diet choices @fig-test1 between man and woman suggests that students from the DATA2X02 cohort are in favour of omnivorous diet style than other diet styles (vegan/vegetarian/pescatarian). This can be predicted since other choices of diet are normally regarded as "special dietary". As normal assumption among the society, man are expected to need more calories than woman, which means gender could affect the choice of diet in term of choosing a diet that provides more calories i.e. omnivorous. To test whether gender affect the dieting choice, we use the Chi-Square test for independence with Monte-Carlo simulation.
+
+```{r fig-test1, fig.asp=0.5, out.width= "100%", warning=FALSE, message=FALSE, fig.cap= "Distribution of diet choices among woman and man"}
+
+x |> filter(gender_clean != "non-binary") |> select(gender_clean, diet) |> drop_na() |> 
+  ggplot() + 
+  aes(x = gender_clean, fill = diet) +
+  geom_bar(linewidth = 2) +
+  labs(x = 'Gender', y = 'Frequency', fill = 'Diet Style')+
+  scale_fill_manual(values = c("indianred1","dodgerblue2"))
+```
+
+```{r}
+set.seed(1)
+
+filter_dat = x |> filter(gender_clean != "non-binary") |> select(gender_clean, diet)
+chiq_sim = chisq.test(table(filter_dat$gender_clean, filter_dat$diet), simulate.p.value = TRUE)
+```
+
+1.  **Hypotheses**: $H_0$: Gender is independent of their choice of diet style. $H_1$: Gender and their choice of diet style are dependent.
+
+2.  **Assumptions**: Since this test requires independent observations, our assumption is not met. The survey is spread among the DATA2X02 cohort for them to do voluntarily and hence, not a random sample as discussed above. $e_i$ = $np_i \ge 5$, which we have checked and confirmed to be `r all(chiq_sim$expected > 5)`.
+
+3.  **Test statistic**: $T = \sum_{i=1}^r\sum_{j=1}^c\frac{(Y_{ij} - e_{ij})^2}{e_{ij}}$
+
+4.  **Observed test statistic**: $t_0$ = `r signif(chiq_sim$statistic,2)`
+
+5.  **p-value**: $P(\chi^2_2 \ge$ `r signif(chiq_sim$statistic,2)` ) = `r format.pval(chiq_sim$p.value,digits = 3, eps = 0.001)`
+
+6.  **Decision**: Since the p-value is greater than the significant level 0.05, we do not reject the null hypothesis. Gender and choice of diet style is independent from each other.
+
+We find out that gender and diet style are not related, which goes against social assumption about diet style. Choice of diet might be the result of a person going toward more healthy lifestyle and maintaining their well-being.
+
+#### Does woman usually work out less than man?
+
+The QQ plot on the right panel of @fig-test2 clearly indicates that the data is not normally distributed. This means that the two sample t-test cannot be conducted since the assumption is not met. Therefore, to test the two means, we will use the Wilcoxon rank sum test (Mann--Whitney U test).
+
+```{r fig-test2, fig.asp=0.5, out.width= "100%", warning=FALSE, message=FALSE, fig.cap= "Side by side boxplots showing approximately equal spread of exercise hours across woman and man with corresponding QQ plots"}
+
+x |>  filter(gender_clean != "non-binary") |> 
+  group_by(gender_clean)  |> 
+  select(c(gender_clean, exercise_hrs)) |> 
+  drop_na() -> mydat
+
+p1 <-  ggplot(mydat,aes(x = gender_clean, y = exercise_hrs, colour = gender_clean)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter() +
+  scale_color_manual(values = c("indianred1","dodgerblue2"))   +
+  labs(y = "Exercise hours (Hours/Week)", x = "Gender", colour = "Gender")
+
+p2 <- ggplot(mydat, aes(sample = exercise_hrs, colour = gender_clean)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~ gender_clean) +
+  labs(x = "Theoretical", y = "Sample", colour = 'Gender') +
+  scale_color_manual(values = c("indianred1","dodgerblue2"))
+
+p1 + p2 + plot_annotation(tag_levels = 'A')
+```
+
+```{r}
+#| label: tbl-summary_stats2
+#| tbl-cap: "Exercise hours among woman and man."
+rank = x |> 
+  filter(gender_clean %in% c('woman', 'man')) |> select(exercise_hrs, gender_clean) |>    drop_na() |> 
+  dplyr::mutate(r = rank(exercise_hrs))
+
+table1 = rank |>
+  group_by(gender_clean) |> 
+  summarise(
+    w = sum(r),
+    xbar = mean(exercise_hrs),
+    s = sd(exercise_hrs),
+    n = n()
+  )
+kable(table1)
+```
+
+```{r}
+woman = x |> filter(gender_clean == 'woman') |> select(exercise_hrs) |> drop_na() 
+man = x |> filter(gender_clean == 'man') |> select(exercise_hrs) |> drop_na() 
+test2 = wilcox.test(woman$exercise_hrs, man$exercise_hrs, alternative = 'less', correct = FALSE)
+```
+
+```{r}
+n1_1 = table1$n[1]
+n1_2 = table1$n[2]
+N1 = n1_1 + n1_2
+w1 = table1$w[2]
+E1 = n1_2*(N1 + 1)/2
+sumsqrank1 = sum(rank$r^2)
+g1 = N1 * (N1+1)^2/4 
+varW1 = (n1_1*n1_2)*(sumsqrank1 - g1)/(N1*(N1-1))
+t0_1 = (w1 - E1)/sqrt(varW1)
+```
+
+1.  **Hypotheses**: Let $\mu_W$ and $\mu_M$ be the population mean exercises hours per week for *Woman* and *Man* DATA2X02 students respectively. $H_0$: $\mu_W$ = $\mu_M$ vs $H_1$: $\mu_W < \mu_M$
+
+2.  **Assumptions**: The two population are independent and follow fairly same distribution but differ by a shift (box plot in @fig-test2)
+
+3.  **Test statistic**: $W = R_1 + R_2 + \ldots + R_{n_W}$ (the sum of the ranks of observations in woman group)
+
+4.  **Observed test statistic**: $w = r_1 + r_2 + \ldots + r_{n_W} =$ `r format(w1, scientific = FALSE)` (see @tbl-summary_stats2)
+
+5.  **p-value**: As the exact WRS'(`r table1$n[2]`, `r table1$n[1]`) distribution with ties is unknown, we use a normal approximation for this distribution with $\operatorname{E}(W) = \frac{n_x(N+1)}{2} =$ `r format(E1, scientific = FALSE)` and $\operatorname{Var}(W) = \frac{n_x n_y}{N(N-1)} \left( \sum_{i=1}^N r_i^2-\frac{N(N+1)^2}{4} \right) =$ `r format(varW1, scientific = FALSE)` and $P(W \le w) \simeq P\left(Z\leq\frac{w-\operatorname{E}(W)}{\sqrt{\operatorname{Var}(W)}} \right) = P(Z<$ `r format(t0_1, digits = 3)`) $=$ `r format.pval(test2$p.value, ,digits = 3, eps = 0.001)`
+
+6.  **Decision**: Since the p-value is less than the significant level 0.05, we reject the null hypothesis. There is a significant difference between exercise hours per week between woman and man.
+
+Since woman usually eat smaller proportion of food compared to man, it is easy to understand that there is a difference between their exercises hours. Eating less means the demand to work out decreases. The number of calories to burn is dependent on the eating proportion.
+
+#### Is there a significant difference between sugar consumption level (days/week) of student who eat meat (Omnivorous) and not (Other)?
+
+According to @fig-test3, we can clearly see that the QQ plots on the left are showing that data is not normally distributed. Hence, we might need to use the Wilcoxon rank sum test (Mann-Whitney U) to investigate the means of two samples.
+
+```{r fig-test3, fig.asp=0.5, out.width= "100%", warning=FALSE, message=FALSE, fig.cap= "Side by side boxplots showing spread of sugar consumption level across omnivorous and other diet choices with corresponding QQ plots"}
+
+x |>  filter(diet %in% c("Omnivorous", "Other")) %>%
+  group_by(diet)  %>% 
+  select(c(diet, sugar_days_clean)) %>% 
+  drop_na() -> mydat2
+
+v1 <-  ggplot(mydat2,aes(x = diet, y = sugar_days_clean, colour = diet)) +
+  geom_boxplot(outlier.shape = NA) + #remove outliers so not confused with jitter
+  geom_jitter() +
+  scale_color_manual(values = c("indianred1","dodgerblue2"))   +
+  labs(y = "Consumption of Sugar (Days/Week)", x = "Diet Style", colour = "Diet")
+
+v2 <- ggplot(mydat2, aes(sample = sugar_days_clean, colour = diet)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~ diet) +
+  labs(x = "Theoretical", y = "Sample", colour = 'Diet') +
+  scale_color_manual(values = c("indianred1","dodgerblue2"))
+
+v1 + v2 + plot_annotation(tag_levels = 'A')
+
+```
+
+```{r}
+#| label: tbl-summary_stats3
+#| tbl-cap: "Sugar consumption level among omnivorous and other"
+rank2 = x |> 
+  select(sugar_days_clean, diet) |>
+  drop_na() |> 
+  dplyr::mutate(r = rank(sugar_days_clean))
+
+table2 = rank2 |>
+  dplyr::group_by(diet) |> 
+  dplyr::summarise(
+    w = sum(r),
+    xbar = mean(sugar_days_clean),
+    s = sd(sugar_days_clean),
+    n = n()
+  )
+kable(table2)
+```
+
+```{r}
+n2_1 = table2$n[1]
+n2_2 = table2$n[2]
+N2 = n2_1 + n2_2
+w2 = table2$w[1]
+E2 = n2_1*(N2 + 1)/2
+sumsqrank2 = sum(rank2$r^2)
+g2 = N2 * (N2+1)^2/4 
+varW2 = (n2_1*n2_2)*(sumsqrank2 - g2)/(N2*(N2-1))
+t0_2 = round((w2 - E2)/sqrt(varW2),2)
+```
+
+```{r}
+omni = x |> filter(diet == 'Omnivorous') |> select(sugar_days_clean) |> drop_na() 
+other = x |> filter(diet == 'Other') |> select(sugar_days_clean) |> drop_na() 
+test3 = wilcox.test(omni$sugar_days_clean, other$sugar_days_clean, alternative = 'greater', correct = FALSE)
+```
+
+1.  **Hypotheses**: Let $\mu_{omnivorous}$ and $\mu_{other}$ be the population mean days of consuming sugar for DATA2X02 students who are omnivorous and not respectively. $H_0$: $\mu_{omnivorous}$ = $\mu_{other}$ vs $H_1$: $\mu_{omnivorous} > \mu_{other}$
+
+2.  **Assumptions**: The two population are independent and follow fairly same distribution but differ by a shift (box plot in @fig-test3)
+
+3.  **Test statistic**: $W = R_1 + R_2 + \ldots + R_{n_{omnivorous}}$ (the sum of the ranks of observations in the Omnivorous group)
+
+4.  **Observed test statistic**: $w = r_1 + r_2 + \ldots + r_{n_{omnivorous}} =$ `r format(w2, scientific = FALSE)` (see @tbl-summary_stats3)
+
+5.  **p-value**: As the exact WRS'(`r table2$n[1]`, `r table2$n[2]`) distribution with ties is unknown, we use a normal approximation for this distribution with $\operatorname{E}(W) = \frac{n_x(N+1)}{2} =$ `r format(E2, scientific = FALSE)` and $\operatorname{Var}(W) = \frac{n_x n_y}{N(N-1)} \left( \sum_{i=1}^N r_i^2-\frac{N(N+1)^2}{4} \right) =$ `r format(varW2, scientific = FALSE)` and $P(W \ge w) \simeq P\left(Z\geq\frac{w-\operatorname{E}(W)}{\sqrt{\operatorname{Var}(W)}} \right) = P(Z>$ `r format(t0_2, digits = 3, scientific = FALSE)`) = `r format.pval(test3$p.value,digits = 3, eps = 0.001)`
+
+6.  **Decision**: Since the p-value is less than the significant level 0.05, we reject the null hypothesis. There is a significant difference between consumption of sugar (days/week) between student who consume meat and those who not.
+
+Omnivorous are found to take in more sugar than people who do not eat meat. This suggests that people who choose other forms of diet style have awareness of their health by not choosing to consume much sugar. Perhaps their choices of diet style are based on their perceptions towards a healthy lifestyle.
+
+## Conclusion
+
+From the three questions that has been investigated in this analysis, we find out that gender do not affect choice of diet style although in daily life basis men are thought to need more calories than women. This can also be manifested in question 2 where we have proved that women exercise less than men. The test in question 3 illustrated that in general, people who consume meat, omnivorous, take in more sugar compared to those who not. This might be due to less variety of food for people with special diet including vegan, vegetarian and pescatarian. Another reason could be people who do not eat meat are healthy-lifestyle oriented.
